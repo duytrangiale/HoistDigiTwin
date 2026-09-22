@@ -1,0 +1,11 @@
+.venv/
+data/
+__pycache__/
+*.pyc
+*.pkl
+mlruns/
+
+# internal instruction guides, not part of the delivered repo
+CLAUDE.md
+HoistDigiTwin_project_plan.md
+HoistDigiTwin_Project_Guide.docx

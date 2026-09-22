@@ -1,0 +1,39 @@
+# HoistDigiTwin simulation configuration
+#
+# The values under sources, bins, skips, and winder are invented placeholders
+# for a plausible mine hoisting circuit. They are not measured from a real
+# site. Phase 1 tunes them until monthly hoisted tonnes land in a believable,
+# stable range, so treat every number here as an assumption until then.
+
+seed: 42
+
+simulation:
+  horizon_days: 365 # length of one simulation run, a full simulated year
+
+sources:
+  # two ore sources feed one shared conveyor, only one active at a time
+  source_a:
+    feed_rate_tph: 800 # tonnes per hour, assumption
+  source_b:
+    feed_rate_tph: 700 # tonnes per hour, assumption
+  switch_interval_hours: 8 # how often the active source switches, assumption
+
+bins:
+  count: 3
+  capacity_tonnes: 500 # per bin, assumption
+
+skips:
+  count: 2 # east and west
+  payload_tonnes: 15 # tonnes carried per skip load, assumption
+  cycle_time_mean_s: 90 # load, hoist, dump, and return, assumption
+  cycle_time_std_s: 10 # variability around the mean cycle time, assumption
+
+winder:
+  scheduled_downtime_hours_per_month: 20 # planned maintenance, assumption
+  breakdown_mtbf_hours: 200 # mean time between random breakdowns, assumption
+  breakdown_mttr_hours: 4 # mean time to repair a breakdown, assumption
+
+paths:
+  data_raw: data/raw
+  data_processed: data/processed
+  reports: reports

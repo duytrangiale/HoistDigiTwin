@@ -1,9 +1,12 @@
 # HoistDigiTwin simulation configuration
 #
-# The values under sources, bins, skips, and winder are invented placeholders
-# for a plausible mine hoisting circuit. They are not measured from a real
-# site. Phase 1 tunes them until monthly hoisted tonnes land in a believable,
-# stable range, so treat every number here as an assumption until then.
+# The values under sources, bins, flasks, skips, and winder are assumptions,
+# not measured from a real site. The skip and winder timing is grounded in
+# published figures for comparable shaft hoisting systems, see
+# reports/simulation_validation.md for the reasoning and sources. Feed rates and bin
+# and flask capacity are sized to be consistent with that hoisting rate, and
+# get refined further during Phase 1 validation against the synthetic
+# twelve month target.
 
 seed: 42
 
@@ -13,25 +16,38 @@ simulation:
 sources:
   # two ore sources feed one shared conveyor, only one active at a time
   source_a:
-    feed_rate_tph: 800 # tonnes per hour, assumption
+    feed_rate_tph: 420 # tonnes per hour, assumption
   source_b:
-    feed_rate_tph: 700 # tonnes per hour, assumption
+    feed_rate_tph: 380 # tonnes per hour, assumption
   switch_interval_hours: 8 # how often the active source switches, assumption
 
 bins:
   count: 3
-  capacity_tonnes: 500 # per bin, assumption
+  capacity_tonnes: 200 # per bin, assumption
+
+flasks:
+  capacity_tonnes: 15 # per flask, about one skip payload, assumption
 
 skips:
   count: 2 # east and west
-  payload_tonnes: 15 # tonnes carried per skip load, assumption
-  cycle_time_mean_s: 90 # load, hoist, dump, and return, assumption
-  cycle_time_std_s: 10 # variability around the mean cycle time, assumption
+  payload_tonnes: 12 # tonnes carried per skip load, from research
+  load_time_mean_s: 20 # filling from the flask, from research
+  hoist_time_mean_s: 60 # loaded transit up the shaft, from research
+  dump_time_mean_s: 10 # tipping at the surface, from research
+  return_time_mean_s: 55 # empty transit back down, from research
+  cycle_time_cv: 0.1 # coefficient of variation applied to each stage above
 
 winder:
-  scheduled_downtime_hours_per_month: 20 # planned maintenance, assumption
+  scheduled_downtime_hours_per_month: 20 # planned maintenance in a typical month, assumption
   breakdown_mtbf_hours: 200 # mean time between random breakdowns, assumption
   breakdown_mttr_hours: 4 # mean time to repair a breakdown, assumption
+  # month index is 0 for the first simulated month, so this assumes the run
+  # starts in January. These stand in for known historical downtime events,
+  # since no real record is available, see reports/simulation_validation.md.
+  scheduled_downtime_overrides:
+    0: 288 # January, New Year shutdown continues, synthetic target assumption
+    6: 355 # July, one bad month, an extended unplanned repair, synthetic target assumption
+    11: 280 # December, Christmas and New Year shutdown, synthetic target assumption
 
 paths:
   data_raw: data/raw

@@ -20,6 +20,9 @@ SHORT_HORIZON_DAYS = 14
 def config():
     cfg = load_config(str(Path(__file__).resolve().parent.parent / "config.yaml"))
     cfg["simulation"]["horizon_days"] = SHORT_HORIZON_DAYS
+    # config.yaml's January override is 288 hours, 12 of the 14 test days,
+    # a Phase 1 calibration artifact these tests should not inherit
+    cfg["winder"].pop("scheduled_downtime_overrides", None)
     return cfg
 
 
@@ -52,3 +55,28 @@ def test_higher_feed_rate_never_lowers_tonnes(config):
 def test_skip_never_exceeds_its_payload(config):
     result = run_simulation(config, seed=5)
     assert (result.cycle_log["tonnes"] <= config["skips"]["payload_tonnes"]).all()
+
+
+def test_skip_outage_produces_almost_no_cycles_during_the_window(config):
+    config = copy.deepcopy(config)
+    config["skip_outages"] = [{"skip": "west", "start_day": 5, "duration_days": 3}]
+    result = run_simulation(config, seed=7)
+
+    DAY = 24 * 3600
+    window_start, window_end = 5 * DAY, 8 * DAY
+    west = result.cycle_log[result.cycle_log["skip_name"] == "skip_west"]
+    in_window = west[(west["dump_time_s"] >= window_start) & (west["dump_time_s"] < window_end)]
+    # at most one cycle already in flight when the window opens is allowed
+    # to finish, the same non-preemptive handling used for breakdowns
+    assert len(in_window) <= 1
+
+
+def test_skip_outage_reduces_total_tonnes(config):
+    outage_config = copy.deepcopy(config)
+    outage_config["skip_outages"] = [{"skip": "west", "start_day": 5, "duration_days": 3}]
+
+    # same seed for both runs, so the comparison isolates the outage's
+    # effect rather than being muddied by unrelated random variation
+    r_baseline = run_simulation(config, seed=7)
+    r_outage = run_simulation(outage_config, seed=7)
+    assert r_outage.total_tonnes < r_baseline.total_tonnes

@@ -92,6 +92,15 @@ def run_simulation(
 
     winder = Winder(env)
 
+    # a known, planned unavailability for one skip, expressed as a window in
+    # time, the same pattern used for calendar aware winder downtime
+    outage_windows: dict[str, list[tuple[float, float]]] = {"skip_west": [], "skip_east": []}
+    for outage in config.get("skip_outages", []):
+        skip_name = f"skip_{outage['skip']}"
+        start_s = outage["start_day"] * SECONDS_PER_DAY
+        end_s = start_s + outage["duration_days"] * SECONDS_PER_DAY
+        outage_windows[skip_name].append((start_s, end_s))
+
     cycle_log: list = []
     skip_cfg = config["skips"]
     skip_west = Skip(
@@ -107,6 +116,7 @@ def run_simulation(
         skip_cfg["cycle_time_cv"],
         rng,
         cycle_log,
+        outage_windows_s=outage_windows["skip_west"],
     )
     skip_east = Skip(
         env,
@@ -121,6 +131,7 @@ def run_simulation(
         skip_cfg["cycle_time_cv"],
         rng,
         cycle_log,
+        outage_windows_s=outage_windows["skip_east"],
     )
 
     bin_level_log: list = []

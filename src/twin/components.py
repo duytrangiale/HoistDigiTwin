@@ -81,6 +81,7 @@ class Skip:
         cycle_time_cv: float,
         rng: random.Random,
         cycle_log: list[CycleRecord],
+        outage_windows_s: list[tuple[float, float]] | None = None,
     ):
         self.env = env
         self.name = name
@@ -94,13 +95,24 @@ class Skip:
         self.cycle_time_cv = cycle_time_cv
         self.rng = rng
         self.cycle_log = cycle_log
+        self.outage_windows_s = outage_windows_s or []
 
     def _duration(self, mean_s: float) -> float:
         std = mean_s * self.cycle_time_cv
         return max(0.0, self.rng.gauss(mean_s, std))
 
+    def _wait_out_any_outage(self):
+        """If the skip is currently inside one of its outage windows, waits
+        until that window ends. Checked once per cycle, at the start, the
+        same way a breakdown does not interrupt a hoist already underway."""
+        for start_s, end_s in self.outage_windows_s:
+            if start_s <= self.env.now < end_s:
+                yield self.env.timeout(end_s - self.env.now)
+                return
+
     def run(self):
         while True:
+            yield from self._wait_out_any_outage()
             cycle_start = self.env.now
 
             yield self.flask.get(self.payload_tonnes)

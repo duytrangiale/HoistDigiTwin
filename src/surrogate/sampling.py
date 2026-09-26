@@ -26,6 +26,19 @@ PARAM_RANGES: dict[str, tuple[float, float]] = {
     "scheduled_downtime_hours_per_month": (5.0, 40.0),
 }
 
+# whether higher or lower is better for monthly tonnes, confirmed
+# empirically in Phase 4 (see phase4_plan.md). Since every parameter is
+# weakly helpful or neutral in its better direction and never harmful, the
+# true optimum sits at this corner of the box, which is also where the
+# design above, spread evenly across the whole range, has the least data.
+HIGHER_IS_BETTER: dict[str, bool] = {
+    "feed_rate_multiplier": True,
+    "skip_payload_tonnes": True,
+    "winder_speed_multiplier": True,
+    "breakdown_mtbf_hours": True,
+    "scheduled_downtime_hours_per_month": False,
+}
+
 
 def generate_design(n_samples: int, param_ranges: dict[str, tuple[float, float]], seed: int) -> pd.DataFrame:
     """A Latin hypercube design over param_ranges, one row per sample,
@@ -36,6 +49,24 @@ def generate_design(n_samples: int, param_ranges: dict[str, tuple[float, float]]
     upper = [bounds[1] for bounds in param_ranges.values()]
     scaled = qmc.scale(unit_samples, lower, upper)
     return pd.DataFrame(scaled, columns=list(param_ranges.keys()))
+
+
+def generate_corner_focused_design(
+    n_samples: int,
+    param_ranges: dict[str, tuple[float, float]],
+    higher_is_better: dict[str, bool],
+    seed: int,
+) -> pd.DataFrame:
+    """A Latin hypercube design restricted to the favourable half of each
+    parameter's range, the region an unconstrained search always heads
+    toward (see phase4_plan.md), and where generate_design's even spread
+    across the whole range leaves the least data. Meant to supplement the
+    main training set, not replace it."""
+    favorable_ranges = {}
+    for name, (lo, hi) in param_ranges.items():
+        mid = (lo + hi) / 2
+        favorable_ranges[name] = (mid, hi) if higher_is_better[name] else (lo, mid)
+    return generate_design(n_samples, favorable_ranges, seed)
 
 
 def config_from_params(base_config: dict, params: dict, horizon_days: int) -> dict:
@@ -93,16 +124,18 @@ def _run_one_point(args: tuple[int, dict, int, int]) -> tuple[int, float, float]
     return point_index, mean_monthly_tonnes(result, horizon_days), result.winder_utilisation_pct
 
 
-def _build_labeled_set(
+def run_design(
     base_config: dict,
-    n_samples: int,
+    design: pd.DataFrame,
     n_replications: int,
     horizon_days: int,
     seed: int,
-    n_workers: int | None,
+    n_workers: int | None = None,
 ) -> pd.DataFrame:
-    design = generate_design(n_samples, PARAM_RANGES, seed)
-
+    """Runs every point in an already built design through the simulator,
+    n_replications each, averaged. Shared by build_training_set,
+    build_held_out_set, and build_corner_focused_set, which only differ in
+    which design they hand it."""
     tasks = []
     for point_index, row in design.iterrows():
         params = row.to_dict()
@@ -132,7 +165,8 @@ def build_training_set(
     """Builds and saves the surrogate's training set: n_samples Latin
     hypercube points, each the mean of n_replications short simulation
     runs."""
-    labeled = _build_labeled_set(base_config, n_samples, n_replications, horizon_days, seed, n_workers)
+    design = generate_design(n_samples, PARAM_RANGES, seed)
+    labeled = run_design(base_config, design, n_replications, horizon_days, seed, n_workers)
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
     labeled.to_csv(save_path, index=False)
     return labeled
@@ -150,7 +184,29 @@ def build_held_out_set(
     """The same mechanism as build_training_set, a different seed so the
     points do not overlap the training design, and more replications per
     point for a less noisy target to check predictions against."""
-    labeled = _build_labeled_set(base_config, n_samples, n_replications, horizon_days, seed, n_workers)
+    design = generate_design(n_samples, PARAM_RANGES, seed)
+    labeled = run_design(base_config, design, n_replications, horizon_days, seed, n_workers)
+    Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+    labeled.to_csv(save_path, index=False)
+    return labeled
+
+
+def build_corner_focused_set(
+    base_config: dict,
+    n_samples: int = 30,
+    n_replications: int = 12,
+    horizon_days: int = 90,
+    seed: int = 5000,
+    n_workers: int | None = None,
+    save_path: str = "data/processed/surrogate_corner_training_set.csv",
+) -> pd.DataFrame:
+    """Extra training points restricted to the favourable half of the
+    space, meant to be added to build_training_set's output, not used
+    alone. More replications per point than the main training set (12
+    against 3), since these points carry more weight for the accuracy of
+    the final answer, given Phase 4's search always heads here."""
+    design = generate_corner_focused_design(n_samples, PARAM_RANGES, HIGHER_IS_BETTER, seed)
+    labeled = run_design(base_config, design, n_replications, horizon_days, seed, n_workers)
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
     labeled.to_csv(save_path, index=False)
     return labeled

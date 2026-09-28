@@ -49,6 +49,25 @@ winder:
     6: 355 # July, one bad month, an extended unplanned repair, synthetic target assumption
     11: 280 # December, Christmas and New Year shutdown, synthetic target assumption
 
+  # Phase 6 only: an alternative to breakdown_mtbf_hours where the winder
+  # genuinely wears out over each life instead of failing at a constant
+  # random rate, so a predictive maintenance policy has a real signal to
+  # watch. Not used unless maintenance_policy below is set, see phase6_plan.md.
+  health:
+    mean_life_hours: 200 # matches breakdown_mtbf_hours, assumption
+    weibull_shape: 2.5 # wear out shape, higher clusters failures more tightly around the mean, assumption
+    noise_sd: 3 # noise on the observed health reading, on a 0 to 100 scale, assumption
+    check_interval_hours: 24 # how often a health reading is taken, assumption
+    rolling_window: 3 # readings averaged for the predictive model's input, must match training
+    unplanned_repair_mttr_hours: 4 # matches breakdown_mttr_hours, assumption
+    planned_repair_mttr_hours: 2 # a repair caught early is assumed quicker than an emergency one, assumption
+    predictive_lead_time_hours: 24 # step in early once predicted remaining life drops below this, assumption
+
+  # reactive (fix only after a real breakdown) or predictive (act on an
+  # early warning from health). Absent by default, so run_simulation uses
+  # breakdown_mtbf_hours above exactly as before.
+  # maintenance_policy: reactive
+
 paths:
   data_raw: data/raw
   data_processed: data/processed

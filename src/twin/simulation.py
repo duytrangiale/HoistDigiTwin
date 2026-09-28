@@ -15,16 +15,24 @@ import yaml
 from .components import (
     Bin,
     Flask,
+    PredictiveMaintenanceConfig,
     Skip,
     Source,
     Winder,
     breakdown_process,
     feed_bins_process,
     feed_flasks_process,
+    health_maintenance_process,
     record_bin_levels_process,
     scheduled_maintenance_process,
     source_switch_process,
 )
+
+# not imported at module level: maintenance_model.py pulls in src/pdm/models.py,
+# which imports torch, costly enough (about 2 seconds) that every replication
+# process in scenarios.py's ProcessPoolExecutor would otherwise pay it even
+# when maintenance_policy is not "predictive". Imported only where it is
+# actually needed, inside run_simulation's predictive branch below.
 
 SECONDS_PER_HOUR = 3600
 SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR
@@ -44,6 +52,7 @@ class SimulationResult:
     monthly_tonnes: pd.Series  # index: month number starting at 0
     cycle_log: pd.DataFrame  # one row per completed skip cycle
     bin_level_log: pd.DataFrame  # one row per bin level sample
+    downtime_log: pd.DataFrame  # one row per maintenance or breakdown event
     winder_utilisation_pct: float
     winder_downtime_pct: float
     horizon_seconds: float
@@ -52,6 +61,7 @@ class SimulationResult:
 def run_simulation(
     config: dict,
     seed: int | None = None,
+    predictive_model=None,
     bin_sample_interval_minutes: float = 30.0,
     bin_feed_step_minutes: float = 15.0,
     flask_feed_step_minutes: float = 2.0,
@@ -60,6 +70,13 @@ def run_simulation(
 
     seed overrides config["seed"], so scenarios.py can run many replications
     of the same config with different seeds without editing the file.
+
+    predictive_model is only used when config["winder"]["maintenance_policy"]
+    is "predictive" (see phase6_plan.md), a model already trained by
+    src/twin/maintenance_model.py's train_twin_rul_model. It is trained once,
+    outside of any replication, and simply reused here, the same way a real
+    predictive maintenance model is trained offline and then deployed
+    unchanged.
 
     The bins and flasks use different feed check intervals on purpose. A
     bin holds 200 tonnes against a feed rate of a few hundred tonnes an
@@ -136,6 +153,7 @@ def run_simulation(
 
     bin_level_log: list = []
     downtime_log: list = []
+    health_log: list = []
 
     env.process(source_switch_process(env, sources, switch_interval_hours))
     env.process(feed_bins_process(env, sources, bins, bin_feed_step_minutes))
@@ -152,16 +170,53 @@ def run_simulation(
             monthly_overrides=config["winder"].get("scheduled_downtime_overrides"),
         )
     )
-    env.process(
-        breakdown_process(
-            env,
-            winder,
-            config["winder"]["breakdown_mtbf_hours"],
-            config["winder"]["breakdown_mttr_hours"],
-            rng,
-            downtime_log,
+    maintenance_policy = config["winder"].get("maintenance_policy")
+    if maintenance_policy:
+        # Phase 6 only: health_maintenance_process replaces the plain
+        # exponential breakdown_process with a winder that genuinely wears
+        # out, see phase6_plan.md. Left off by default, so every config
+        # written before this phase keeps using breakdown_process exactly
+        # as before.
+        health_cfg = config["winder"]["health"]
+        predictive_cfg = None
+        if maintenance_policy == "predictive":
+            if predictive_model is None:
+                raise ValueError("maintenance_policy is 'predictive' but no predictive_model was given")
+            from .maintenance_model import FEATURE_COLS
+
+            predictive_cfg = PredictiveMaintenanceConfig(
+                model=predictive_model,
+                feature_cols=FEATURE_COLS,
+                rolling_window=health_cfg["rolling_window"],
+                lead_time_hours=health_cfg["predictive_lead_time_hours"],
+                planned_repair_mttr_hours=health_cfg["planned_repair_mttr_hours"],
+            )
+        env.process(
+            health_maintenance_process(
+                env,
+                winder,
+                health_cfg["mean_life_hours"],
+                health_cfg["weibull_shape"],
+                health_cfg["noise_sd"],
+                health_cfg["check_interval_hours"],
+                health_cfg["unplanned_repair_mttr_hours"],
+                rng,
+                downtime_log,
+                health_log,
+                predictive=predictive_cfg,
+            )
         )
-    )
+    else:
+        env.process(
+            breakdown_process(
+                env,
+                winder,
+                config["winder"]["breakdown_mtbf_hours"],
+                config["winder"]["breakdown_mttr_hours"],
+                rng,
+                downtime_log,
+            )
+        )
     env.process(record_bin_levels_process(env, bins, bin_sample_interval_minutes, bin_level_log))
 
     env.run(until=horizon_seconds)
@@ -178,6 +233,7 @@ def run_simulation(
         ]
     )
     bin_level_df = pd.DataFrame(bin_level_log, columns=["time_s", "bin_name", "level_tonnes"])
+    downtime_df = pd.DataFrame(downtime_log, columns=["start_s", "duration_s", "kind"])
 
     total_tonnes = cycle_df["tonnes"].sum() if not cycle_df.empty else 0.0
     if not cycle_df.empty:
@@ -192,6 +248,7 @@ def run_simulation(
         monthly_tonnes=monthly_tonnes,
         cycle_log=cycle_df,
         bin_level_log=bin_level_df,
+        downtime_log=downtime_df,
         winder_utilisation_pct=winder.busy_hoisting_seconds / horizon_seconds * 100,
         winder_downtime_pct=winder.down_seconds / horizon_seconds * 100,
         horizon_seconds=horizon_seconds,

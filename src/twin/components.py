@@ -6,9 +6,11 @@ decisions behind this file.
 
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass, field
 
+import pandas as pd
 import simpy
 
 
@@ -253,6 +255,115 @@ def breakdown_process(
             yield env.timeout(repair_s)
             winder.down_seconds += env.now - start
             downtime_log.append((start, repair_s, "breakdown"))
+
+
+def _weibull_scale_for_mean(mean_hours: float, shape: float) -> float:
+    """Python's random.weibullvariate takes a scale parameter, not a mean.
+    This solves for the scale that gives the distribution the mean we
+    actually want, using the standard Weibull mean formula, so config
+    can state a mean life in hours directly rather than an abstract
+    scale number."""
+    return mean_hours / math.gamma(1 + 1 / shape)
+
+
+@dataclass
+class PredictiveMaintenanceConfig:
+    """Turns on the predictive policy inside health_maintenance_process.
+    Passing None instead of one of these, the default, means the
+    reactive policy: never step in early, always let a life run to a
+    real breakdown. model and feature_cols come from
+    src/twin/maintenance_model.py's train_twin_rul_model, and must agree
+    with rolling_window used to build that model's training features."""
+
+    model: object
+    feature_cols: list[str]
+    rolling_window: int
+    lead_time_hours: float
+    planned_repair_mttr_hours: float
+
+
+def health_maintenance_process(
+    env: simpy.Environment,
+    winder: Winder,
+    mean_life_hours: float,
+    weibull_shape: float,
+    noise_sd: float,
+    check_interval_hours: float,
+    unplanned_repair_mttr_hours: float,
+    rng: random.Random,
+    downtime_log: list[tuple[float, float, str]],
+    health_log: list[tuple[float, float, float, float]],
+    predictive: PredictiveMaintenanceConfig | None = None,
+):
+    """An alternative to breakdown_process, not used unless a config
+    explicitly turns it on (see simulation.py). Each life the winder gets
+    after a repair has its own length, drawn from a Weibull distribution
+    so that, unlike breakdown_process's memoryless exponential, the
+    winder genuinely gets more likely to fail the longer a life goes on,
+    which is what makes watching a health signal worth anything at all.
+
+    Within a life, true health falls in a straight line from 100 to 0 as
+    the life's end approaches. Nobody downstream sees that true number,
+    only a noisy reading of it, taken once per check_interval_hours and
+    appended to health_log as (time_s, true_health, observed_health,
+    elapsed_hours). If a life runs all the way down to 0 with nothing
+    stepping in early, that is a real breakdown, and it needs an
+    unplanned repair, logged the same way breakdown_process logs one.
+
+    With predictive set, every reading also feeds the trained model a
+    rolling mean of the last rolling_window readings plus elapsed hours,
+    the same features it was trained on. If the predicted remaining
+    hours drops under lead_time_hours, the life ends there instead, with
+    a shorter planned repair, logged separately as "planned_predictive"
+    so it can be told apart from a real breakdown afterwards.
+    """
+    scale = _weibull_scale_for_mean(mean_life_hours, weibull_shape)
+    while True:
+        life_hours = rng.weibullvariate(scale, weibull_shape)
+        elapsed_hours = 0.0
+        recent_readings: list[float] = []
+        intervened_early = False
+        while life_hours - elapsed_hours > 1e-9:
+            step_hours = min(check_interval_hours, life_hours - elapsed_hours)
+            yield env.timeout(step_hours * 3600)
+            elapsed_hours += step_hours
+            true_health = 100 * max(0.0, 1 - elapsed_hours / life_hours)
+            observed_health = true_health + rng.gauss(0, noise_sd)
+            health_log.append((env.now, true_health, observed_health, elapsed_hours))
+            recent_readings.append(observed_health)
+
+            if predictive is not None:
+                window = recent_readings[-predictive.rolling_window :]
+                rolling_mean = sum(window) / len(window)
+                row = pd.DataFrame(
+                    [
+                        {
+                            "observed_health": observed_health,
+                            "rolling_mean": rolling_mean,
+                            "elapsed_hours": elapsed_hours,
+                        }
+                    ]
+                )[predictive.feature_cols]
+                predicted_remaining_hours = predictive.model.predict(row)[0]
+                if predicted_remaining_hours < predictive.lead_time_hours:
+                    with winder.resource.request() as req:
+                        yield req
+                        start = env.now
+                        repair_s = rng.expovariate(1 / (predictive.planned_repair_mttr_hours * 3600))
+                        yield env.timeout(repair_s)
+                        winder.down_seconds += env.now - start
+                        downtime_log.append((start, repair_s, "planned_predictive"))
+                    intervened_early = True
+                    break
+
+        if not intervened_early:
+            with winder.resource.request() as req:
+                yield req
+                start = env.now
+                repair_s = rng.expovariate(1 / (unplanned_repair_mttr_hours * 3600))
+                yield env.timeout(repair_s)
+                winder.down_seconds += env.now - start
+                downtime_log.append((start, repair_s, "breakdown"))
 
 
 def record_bin_levels_process(

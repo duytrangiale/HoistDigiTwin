@@ -30,17 +30,23 @@ export default function WinderHealthPanel({ onStatusChange }) {
 
   return (
     <div>
-      <h2 className="text-sm font-semibold text-slate-100 mb-1">Winder health</h2>
-      <p className="text-xs text-slate-500 mb-3">
-        The Phase 6 model: a health reading and hours since the last repair, predicting how many hours are left
-        before this winder needs attention.
+      <h2 className="text-base font-semibold text-slate-100 mb-1">Predicting a breakdown before it happens</h2>
+      <p className="text-sm text-slate-400 mb-4">
+        Real equipment does not fail at a totally random moment, it wears out. This winder has a simulated health
+        signal that genuinely declines over time, like a real condition monitoring sensor would report, and a model
+        trained to read that signal and predict how many hours of life are left. Try dragging the health reading
+        down and watch the winder icon on the schematic change colour.
       </p>
 
-      <label className="text-xs text-slate-400 block mb-3">
-        <div className="flex justify-between mb-1">
-          <span>Current health reading</span>
-          <span className="text-slate-300">{currentReading}</span>
+      <label className="text-sm text-slate-300 block mb-4">
+        <div className="flex justify-between items-baseline mb-1">
+          <span className="font-medium text-slate-200">Current health reading</span>
+          <span className="text-slate-400 text-xs">{currentReading} / 100</span>
         </div>
+        <p className="text-xs text-slate-500 mb-1">
+          100 means freshly repaired, 0 means right at the point of failure. A real sensor reading like this would
+          come from vibration, temperature, or wear measurements on the actual machine.
+        </p>
         <input
           type="range"
           min={0}
@@ -52,11 +58,16 @@ export default function WinderHealthPanel({ onStatusChange }) {
         />
       </label>
 
-      <label className="text-xs text-slate-400 block">
-        <div className="flex justify-between mb-1">
-          <span>Hours since last repair</span>
-          <span className="text-slate-300">{elapsedHours}</span>
+      <label className="text-sm text-slate-300 block">
+        <div className="flex justify-between items-baseline mb-1">
+          <span className="font-medium text-slate-200">Hours since last repair</span>
+          <span className="text-slate-400 text-xs">{elapsedHours} hours</span>
         </div>
+        <p className="text-xs text-slate-500 mb-1">
+          How long this winder has been running since it was last serviced. The model uses this alongside the
+          reading above, since a low reading early in a run means something different from the same reading after a
+          long run.
+        </p>
         <input
           type="range"
           min={0}
@@ -77,11 +88,15 @@ export default function WinderHealthPanel({ onStatusChange }) {
         )}
         {prediction && (
           <>
-            <p className="text-xs text-slate-400">Predicted remaining life</p>
-            <p className="text-2xl font-semibold text-sky-400">
-              {Math.round(prediction.predicted_remaining_hours).toLocaleString()} hours
+            <p className="text-xs text-slate-400">Predicted hours of life remaining</p>
+            <p className="text-3xl font-semibold text-sky-400">
+              {Math.round(prediction.predicted_remaining_hours).toLocaleString()}
             </p>
-            <p className={`text-xs mt-1 font-medium ${STATUS_COLOR[prediction.status]}`}>{prediction.status}</p>
+            <p className={`text-sm mt-1 font-medium ${STATUS_COLOR[prediction.status]}`}>
+              {prediction.status === "healthy" && "Healthy, no action needed."}
+              {prediction.status === "watch" && "Getting close, worth keeping an eye on."}
+              {prediction.status === "schedule maintenance soon" && "Step in now, before it fails on its own."}
+            </p>
           </>
         )}
         {status === "loading" && !prediction && <p className="text-xs text-slate-500">Loading...</p>}

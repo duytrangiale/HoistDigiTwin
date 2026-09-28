@@ -26,13 +26,14 @@ services:
     buildCommand: npm install && npm run build
     staticPublishPath: dist
     envVars:
-      # fromService only gives a bare host, no scheme, src/api.js adds
-      # https:// itself if one is not already present
+      # fromService's "host" property turned out to give Render's internal,
+      # private hostname for service to service traffic, not the public one
+      # a browser can reach, confirmed directly against a live deploy: the
+      # frontend baked in "hoistdigitwin-api" alone and every request failed.
+      # A plain web service's public URL is always <name>.onrender.com, so
+      # that is set directly here instead.
       - key: VITE_API_URL
-        fromService:
-          name: hoistdigitwin-api
-          type: web
-          property: host
+        value: https://hoistdigitwin-api.onrender.com
     routes:
       - type: rewrite
         source: /*

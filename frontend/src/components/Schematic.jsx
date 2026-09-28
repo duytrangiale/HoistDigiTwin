@@ -6,12 +6,14 @@ import { useEffect, useState } from "react";
 // surface level. Source names are generic (Source A / Source B), matching
 // config.yaml's own naming, rather than any site specific codes.
 //
-// The animation (ore flow, skip cycling, one active source at a time) is
-// illustrative, running on its own timers, not driven by a live simulation
-// tick. Two things ARE real: the skip cycle speed and the ore flow speed
-// scale with the winder speed and feed rate sliders respectively, the same
-// direction those settings actually push the real simulation, see
-// phase7_plan.md.
+// The animation is illustrative, running on its own timers, not driven by a
+// live simulation tick, but the skip cycle mirrors the real rule from
+// src/twin/components.py: loading only needs a skip's own flask, so both
+// can load at once, but hoisting, dumping, and returning all hold the one
+// shared winder, so only one skip is ever doing that at a time. A skip
+// waits at the bottom, full, until the winder is actually free. Hoist and
+// return speed scale with the winder speed slider, the same direction that
+// setting pushes the real simulation, see phase7_plan.md.
 
 const STROKE = "#94a3b8";
 const FILL = "#1e293b";
@@ -83,6 +85,102 @@ function FlowDots({ path, count = 3, duration = 2.2, color = "#eda100" }) {
         </circle>
       ))}
     </>
+  );
+}
+
+// Mirrors the real cycle from src/twin/components.py's Skip.run: loading
+// only needs the flask, no winder involved, so both skips could load at
+// once, but hoisting, dumping, and returning all hold the single shared
+// winder, so only one skip can be doing that at a time. A skip stays put
+// at the bottom, filling, until it is both full and the winder is free.
+const LOAD_DURATION_MS = 2600;
+const DUMP_DURATION_MS = 450;
+const TICK_MS = 50;
+
+function useHoistCycle(winderSpeedMultiplier) {
+  const hoistDurationMs = 1900 / winderSpeedMultiplier;
+  const returnDurationMs = 1700 / winderSpeedMultiplier;
+
+  const [state, setState] = useState({
+    skipW: { phase: "loading", fill: 0.6, elapsed: 0 },
+    skipE: { phase: "loading", fill: 0, elapsed: 0 },
+    winderHolder: null,
+  });
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setState((prev) => {
+        const next = { winderHolder: prev.winderHolder };
+
+        const advance = (skip, key) => {
+          const s = { ...skip, elapsed: skip.elapsed + TICK_MS };
+          if (s.phase === "loading") {
+            s.fill = Math.min(1, s.elapsed / LOAD_DURATION_MS);
+            if (s.fill >= 1 && next.winderHolder === null) {
+              next.winderHolder = key;
+              return { phase: "hoisting", fill: 1, elapsed: 0 };
+            }
+            return s;
+          }
+          if (s.phase === "hoisting") {
+            if (s.elapsed >= hoistDurationMs) return { phase: "dumping", fill: 1, elapsed: 0 };
+            return s;
+          }
+          if (s.phase === "dumping") {
+            s.fill = Math.max(0, 1 - s.elapsed / DUMP_DURATION_MS);
+            if (s.elapsed >= DUMP_DURATION_MS) return { phase: "returning", fill: 0, elapsed: 0 };
+            return s;
+          }
+          // returning
+          if (s.elapsed >= returnDurationMs) {
+            next.winderHolder = null;
+            return { phase: "loading", fill: 0, elapsed: 0 };
+          }
+          return s;
+        };
+
+        next.skipW = advance(prev.skipW, "W");
+        next.skipE = advance(prev.skipE, "E");
+        return next;
+      });
+    }, TICK_MS);
+    return () => clearInterval(id);
+  }, [hoistDurationMs, returnDurationMs]);
+
+  return { ...state, hoistDurationMs, returnDurationMs };
+}
+
+function skipY(skip, hoistDurationMs, returnDurationMs, lowY, highY) {
+  if (skip.phase === "hoisting") return lowY + (highY - lowY) * Math.min(1, skip.elapsed / hoistDurationMs);
+  if (skip.phase === "dumping") return highY;
+  if (skip.phase === "returning") return highY + (lowY - highY) * Math.min(1, skip.elapsed / returnDurationMs);
+  return lowY; // loading
+}
+
+function Skip({ x, y, fill, label }) {
+  const w = 52;
+  const h = 36;
+  const clipId = `skip-clip-${label}`;
+  return (
+    <g id={`skip-${label}`} data-y={y} data-fill={fill} transform={`translate(0, ${y})`}>
+      <rect x={x - w / 2} y={0} width={w} height={h} fill="#1e3a5f" stroke={STROKE} strokeWidth={1.5} rx={4} />
+      <clipPath id={clipId}>
+        <rect x={x - w / 2 + 3} y={3} width={w - 6} height={h - 6} rx={2} />
+      </clipPath>
+      <rect
+        x={x - w / 2 + 3}
+        y={3 + (h - 6) * (1 - fill)}
+        width={w - 6}
+        height={(h - 6) * fill}
+        fill="#3987e5"
+        clipPath={`url(#${clipId})`}
+      />
+      {/* the label sits just above the box rather than on top of it, so
+          it stays readable no matter how full the skip currently is */}
+      <text x={x} y={-6} fill={LABEL} fontSize={11} textAnchor="middle" fontWeight="600">
+        skip {label}
+      </text>
+    </g>
   );
 }
 
@@ -160,8 +258,11 @@ export default function Schematic({
   }, []);
 
   const flowDuration = Math.max(0.6, 2.2 / feedRateMultiplier);
-  const skipDuration = Math.max(1.5, 6 / winderSpeedMultiplier);
   const fillBoost = Math.min(1, Math.max(0, (feedRateMultiplier - 0.5) / 1.0));
+
+  const { skipW, skipE, hoistDurationMs, returnDurationMs } = useHoistCycle(winderSpeedMultiplier);
+  const skipWY = skipY(skipW, hoistDurationMs, returnDurationMs, SKIP_W_LOW_Y, SKIP_HIGH_Y);
+  const skipEY = skipY(skipE, hoistDurationMs, returnDurationMs, SKIP_E_LOW_Y, SKIP_HIGH_Y);
 
   return (
     <svg viewBox="0 0 1500 750" className="w-full h-auto" role="img" aria-label="Hoist circuit schematic">
@@ -279,9 +380,8 @@ export default function Schematic({
         winder
       </text>
 
-      {/* the production shaft, skip west and skip east inside it, cycling
-          up toward the surface and back down, out of phase with each
-          other. Cycle speed scales with the winder speed slider. */}
+      {/* the production shaft, skip west and skip east inside it, each
+          taking its turn on the one shared winder, see useHoistCycle */}
       <rect x={SHAFT_X} y={SHAFT_Y} width={SHAFT_W} height={SHAFT_H} fill="#0f172a" stroke={STROKE} strokeWidth={1.5} />
       <text x={SHAFT_X + SHAFT_W - 8} y={SHAFT_Y - 12} fill={MUTED} fontSize={13} textAnchor="end">
         production shaft
@@ -289,7 +389,8 @@ export default function Schematic({
       {/* flasks load their own skip where it rests. Ore falls down from
           the flask, so the loading point sits below the flask, then
           across to the skip's own lane, matching where its rope actually
-          ends up. */}
+          ends up. Ore only actually flows while that skip is the one
+          waiting at the bottom, not while it is off in the shaft. */}
       <path
         d={`M 682 ${FLASKS_Y + 36} L 682 ${SKIP_W_LOW_Y} L ${SKIP_W_X} ${SKIP_W_LOW_Y}`}
         fill="none"
@@ -302,72 +403,38 @@ export default function Schematic({
         stroke={STROKE}
         strokeWidth={1.5}
       />
+      {skipW.phase === "loading" && skipW.fill < 1 && (
+        <FlowDots path={`M 682 ${FLASKS_Y + 36} L 682 ${SKIP_W_LOW_Y} L ${SKIP_W_X} ${SKIP_W_LOW_Y}`} count={1} duration={0.9} />
+      )}
+      {skipE.phase === "loading" && skipE.fill < 1 && (
+        <FlowDots path={`M 812 ${FLASKS_Y + 36} L 812 ${SKIP_E_LOW_Y} L ${SKIP_E_X} ${SKIP_E_LOW_Y}`} count={1} duration={0.9} />
+      )}
 
-      {/* the rope each skip actually hangs from, animated in exact
-          lockstep with that skip's own animation below, so it reads as
-          attached rather than the skip floating free. Skip E's rope is
+      {/* each skip pours out at the surface only while it is actually
+          dumping, into the surge bin above */}
+      {skipW.phase === "dumping" && <FlowDots path={`M ${SKIP_W_X} ${SKIP_HIGH_Y} L ${WINDER_X - 30} 94`} count={2} duration={0.4} />}
+      {skipE.phase === "dumping" && <FlowDots path={`M ${SKIP_E_X} ${SKIP_HIGH_Y} L ${WINDER_X + 30} 94`} count={2} duration={0.4} />}
+
+      {/* the rope each skip actually hangs from, its length set directly
+          from that skip's own current position below, so it always reads
+          as attached rather than the skip floating free. Skip E's rope is
           right angled, straight down from the winder then across, so it
-          never crosses skip W's own rope on the way. */}
-      <line x1={WINDER_X - 8} y1={WINDER_Y + 24} x2={SKIP_W_X} y2={SKIP_W_LOW_Y} stroke="#cbd5e1" strokeWidth={1.5}>
-        <animate
-          attributeName="y2"
-          values={`${SKIP_W_LOW_Y};${SKIP_HIGH_Y};${SKIP_W_LOW_Y}`}
-          keyTimes="0;0.5;1"
-          dur={`${skipDuration}s`}
-          repeatCount="indefinite"
-        />
-      </line>
+          never crosses skip W's own rope. */}
+      <line x1={WINDER_X - 8} y1={WINDER_Y + 24} x2={SKIP_W_X} y2={skipWY} stroke="#cbd5e1" strokeWidth={1.5} />
       <path
-        d={`M ${WINDER_X + 8} ${WINDER_Y + 24} L ${WINDER_X + 8} ${SHAFT_Y + 10} L ${SKIP_E_X} ${SHAFT_Y + 10} L ${SKIP_E_X} ${SKIP_E_LOW_Y}`}
+        d={`M ${WINDER_X + 8} ${WINDER_Y + 24} L ${WINDER_X + 8} ${SHAFT_Y + 10} L ${SKIP_E_X} ${SHAFT_Y + 10} L ${SKIP_E_X} ${skipEY}`}
         fill="none"
         stroke="#cbd5e1"
         strokeWidth={1.5}
-      >
-        <animate
-          attributeName="d"
-          values={[SKIP_E_LOW_Y, SKIP_HIGH_Y, SKIP_E_LOW_Y]
-            .map((y) => `M ${WINDER_X + 8} ${WINDER_Y + 24} L ${WINDER_X + 8} ${SHAFT_Y + 10} L ${SKIP_E_X} ${SHAFT_Y + 10} L ${SKIP_E_X} ${y}`)
-            .join(";")}
-          keyTimes="0;0.5;1"
-          dur={`${skipDuration}s`}
-          begin={`${-skipDuration / 2}s`}
-          repeatCount="indefinite"
-        />
-      </path>
+      />
 
-      <g transform={`translate(0, ${SKIP_W_LOW_Y})`}>
-        <animateTransform
-          attributeName="transform"
-          type="translate"
-          values={`0,${SKIP_W_LOW_Y}; 0,${SKIP_HIGH_Y}; 0,${SKIP_W_LOW_Y}`}
-          keyTimes="0;0.5;1"
-          dur={`${skipDuration}s`}
-          repeatCount="indefinite"
-        />
-        <rect x={SKIP_W_X - 26} y={0} width={52} height={36} fill="#3987e5" stroke={STROKE} strokeWidth={1.5} rx={4} />
-        <text x={SKIP_W_X} y={23} fill="#0b1220" fontSize={11} textAnchor="middle" fontWeight="600">
-          skip W
-        </text>
-      </g>
-      <g transform={`translate(0, ${SKIP_E_LOW_Y})`}>
-        <animateTransform
-          attributeName="transform"
-          type="translate"
-          values={`0,${SKIP_E_LOW_Y}; 0,${SKIP_HIGH_Y}; 0,${SKIP_E_LOW_Y}`}
-          keyTimes="0;0.5;1"
-          dur={`${skipDuration}s`}
-          begin={`${-skipDuration / 2}s`}
-          repeatCount="indefinite"
-        />
-        <rect x={SKIP_E_X - 26} y={0} width={52} height={36} fill="#3987e5" stroke={STROKE} strokeWidth={1.5} rx={4} />
-        <text x={SKIP_E_X} y={23} fill="#0b1220" fontSize={11} textAnchor="middle" fontWeight="600">
-          skip E
-        </text>
-      </g>
+      <Skip x={SKIP_W_X} y={skipWY} fill={skipW.fill} label="W" />
+      <Skip x={SKIP_E_X} y={skipEY} fill={skipE.fill} label="E" />
 
       <text x={472} y={732} fill={MUTED} fontSize={12}>
-        Schematic, not to scale. Ore flow and skip speed track the feed rate and winder speed sliders, everything
-        else is illustrative.
+        Schematic, not to scale. Each skip waits at the bottom until full, then takes its turn on the shared winder,
+        the same one-winder-at-a-time rule the real simulation follows. Hoist and return speed track the winder
+        speed slider.
       </text>
     </svg>
   );

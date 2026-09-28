@@ -31,7 +31,7 @@ export default function WinderHealthPanel({ onStatusChange }) {
   return (
     <div>
       <h2 className="text-base font-semibold text-slate-100 mb-1">Predicting a breakdown before it happens</h2>
-      <p className="text-sm text-slate-400 mb-4">
+      <p className="text-sm text-slate-300 mb-4">
         Real equipment does not fail at a totally random moment, it wears out. This winder has a simulated health
         signal that genuinely declines over time, like a real condition monitoring sensor would report, and a model
         trained to read that signal and predict how many hours of life are left. Try dragging the health reading
@@ -41,9 +41,9 @@ export default function WinderHealthPanel({ onStatusChange }) {
       <label className="text-sm text-slate-300 block mb-4">
         <div className="flex justify-between items-baseline mb-1">
           <span className="font-medium text-slate-200">Current health reading</span>
-          <span className="text-slate-400 text-xs">{currentReading} / 100</span>
+          <span className="text-slate-300 text-xs">{currentReading} / 100</span>
         </div>
-        <p className="text-xs text-slate-500 mb-1">
+        <p className="text-xs text-slate-300 mb-1">
           100 means freshly repaired, 0 means right at the point of failure. A real sensor reading like this would
           come from vibration, temperature, or wear measurements on the actual machine.
         </p>
@@ -61,9 +61,9 @@ export default function WinderHealthPanel({ onStatusChange }) {
       <label className="text-sm text-slate-300 block">
         <div className="flex justify-between items-baseline mb-1">
           <span className="font-medium text-slate-200">Hours since last repair</span>
-          <span className="text-slate-400 text-xs">{elapsedHours} hours</span>
+          <span className="text-slate-300 text-xs">{elapsedHours} hours</span>
         </div>
-        <p className="text-xs text-slate-500 mb-1">
+        <p className="text-xs text-slate-300 mb-1">
           How long this winder has been running since it was last serviced. The model uses this alongside the
           reading above, since a low reading early in a run means something different from the same reading after a
           long run.
@@ -88,7 +88,7 @@ export default function WinderHealthPanel({ onStatusChange }) {
         )}
         {prediction && (
           <>
-            <p className="text-xs text-slate-400">Predicted hours of life remaining</p>
+            <p className="text-xs text-slate-300">Predicted hours of life remaining</p>
             <p className="text-3xl font-semibold text-sky-400">
               {Math.round(prediction.predicted_remaining_hours).toLocaleString()}
             </p>
@@ -99,7 +99,7 @@ export default function WinderHealthPanel({ onStatusChange }) {
             </p>
           </>
         )}
-        {status === "loading" && !prediction && <p className="text-xs text-slate-500">Loading...</p>}
+        {status === "loading" && !prediction && <p className="text-xs text-slate-300">Loading...</p>}
       </div>
     </div>
   );

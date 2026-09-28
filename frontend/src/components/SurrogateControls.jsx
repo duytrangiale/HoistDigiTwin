@@ -88,7 +88,7 @@ export default function SurrogateControls({ onSettingsChange, onPredictionChange
   return (
     <div>
       <h2 className="text-base font-semibold text-slate-100 mb-1">What settings drive the twin</h2>
-      <p className="text-sm text-slate-400 mb-4">
+      <p className="text-sm text-slate-300 mb-4">
         This model was trained on thousands of simulated years of the hoist circuit, then checked against the real
         thing. Move a slider and it predicts, in under a millisecond, what a full year of simulation would find, a
         fast stand in for something that would otherwise take about 10 seconds to actually run.
@@ -103,15 +103,15 @@ export default function SurrogateControls({ onSettingsChange, onPredictionChange
                 className="text-left font-medium text-slate-200 hover:text-sky-400 flex items-center gap-1.5"
               >
                 {p.label}
-                <span className="text-slate-500 text-xs border border-slate-600 rounded-full w-4 h-4 inline-flex items-center justify-center">
+                <span className="text-slate-300 text-xs border border-slate-600 rounded-full w-4 h-4 inline-flex items-center justify-center">
                   ?
                 </span>
               </button>
-              <span className="text-slate-400 text-xs">
+              <span className="text-slate-300 text-xs">
                 {settings[p.key]} {p.unit}
               </span>
             </div>
-            {openHelp === p.key && <p className="text-xs text-slate-400 mb-2 bg-slate-800/50 rounded p-2">{p.help}</p>}
+            {openHelp === p.key && <p className="text-xs text-slate-300 mb-2 bg-slate-800/50 rounded p-2">{p.help}</p>}
             <input
               type="range"
               min={p.min}
@@ -134,17 +134,17 @@ export default function SurrogateControls({ onSettingsChange, onPredictionChange
         )}
         {prediction && (
           <>
-            <p className="text-xs text-slate-400">Predicted monthly tonnes hoisted</p>
+            <p className="text-xs text-slate-300">Predicted monthly tonnes hoisted</p>
             <p className="text-3xl font-semibold text-sky-400">
               {Math.round(prediction.predicted_monthly_tonnes).toLocaleString()}
             </p>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-300 mt-1">
               {Math.round(prediction.predicted_annual_tonnes).toLocaleString()} tonnes a year at this rate, also
               shown live on the schematic above
             </p>
           </>
         )}
-        {status === "loading" && !prediction && <p className="text-xs text-slate-500">Loading...</p>}
+        {status === "loading" && !prediction && <p className="text-xs text-slate-300">Loading...</p>}
       </div>
     </div>
   );

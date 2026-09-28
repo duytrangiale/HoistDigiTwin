@@ -1,0 +1,18 @@
+# Dependencies for the deployed API only (src/serve/api.py). Deliberately
+# excludes torch, shap, mlflow, streamlit, and the notebook tooling in the
+# main requirements.txt, see phase7_plan.md for why: torch and shap alone
+# measured at about 340MB of import memory, against Render's free 512MB
+# ceiling. simpy and pyyaml are still needed even though the API never
+# runs the simulation, since importing surrogate.sampling for its
+# PARAM_RANGES constant transitively imports twin.simulation.
+
+simpy==4.1.1
+numpy==1.26.4
+pandas==2.2.2
+scipy==1.13.1
+scikit-learn==1.4.2
+joblib==1.6.0
+xgboost==2.0.3
+pyyaml==6.0.1
+fastapi==0.111.0
+uvicorn==0.29.0

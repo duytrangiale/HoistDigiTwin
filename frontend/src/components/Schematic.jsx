@@ -135,11 +135,14 @@ const READOUT_X = 1045;
 // actually travels between: low, where its flask loads it, high, near the
 // surface where the winder dumps it. Shared by the flask connector paths,
 // the skip's own animation, and its rope, so all three always agree.
+// Loading has to sit below the flasks, ore falls down into a skip, not up
+// into one, and dumping has to sit near the top of the shaft, close to the
+// winder.
 const SKIP_W_X = SHAFT_X + 56;
-const SKIP_W_LOW_Y = SHAFT_Y + 238;
+const SKIP_W_LOW_Y = FLASKS_Y + 70;
 const SKIP_E_X = SHAFT_X + 176;
-const SKIP_E_LOW_Y = SHAFT_Y + 438;
-const SKIP_HIGH_Y = SHAFT_Y + 40;
+const SKIP_E_LOW_Y = FLASKS_Y + 150;
+const SKIP_HIGH_Y = SHAFT_Y + 20;
 
 export default function Schematic({
   winderStatus = "healthy",
@@ -188,10 +191,8 @@ export default function Schematic({
         strokeWidth={1.5}
         opacity={activeSource === "B" ? 1 : 0.3}
       />
-      {activeSource === "A" && <FlowDots path="M 105 246 L 105 300 L 460 300 L 610 300 L 610 330" duration={flowDuration} />}
-      {activeSource === "B" && (
-        <FlowDots path="M 285 246 L 285 280 L 460 280 L 460 300 L 610 300 L 610 330" duration={flowDuration} />
-      )}
+      {activeSource === "A" && <FlowDots path="M 105 246 L 105 300 L 880 300" duration={flowDuration} count={4} />}
+      {activeSource === "B" && <FlowDots path="M 285 246 L 285 280 L 460 280 L 460 300 L 880 300" duration={flowDuration} count={4} />}
 
       {/* the model boundary, matching the original diagram's own annotation */}
       <rect x={460} y={30} width={990} height={690} fill="none" stroke="#475569" strokeWidth={1.5} strokeDasharray="7 6" rx={12} />
@@ -208,7 +209,11 @@ export default function Schematic({
       <text x={472} y={292} fill={MUTED} fontSize={12}>
         conveyor
       </text>
-      <FlowDots path={`M 610 300 L 745 300 L 880 300`} count={2} duration={flowDuration * 1.4} />
+      {/* a steady trickle into every bin, not just whichever one the main
+          flow above happens to be passing at that instant */}
+      <FlowDots path={`M 610 300 L 610 ${BINS_Y}`} count={1} duration={1.1} />
+      <FlowDots path={`M 745 300 L 745 ${BINS_Y}`} count={1} duration={1.1} />
+      <FlowDots path={`M 880 300 L 880 ${BINS_Y}`} count={1} duration={1.1} />
 
       <OreBin x={565} y={BINS_Y} label="Ore bin 1" phase={0} fillBoost={fillBoost} />
       <OreBin x={700} y={BINS_Y} label="Ore bin 2" phase={2.3} fillBoost={fillBoost} />
@@ -228,11 +233,14 @@ export default function Schematic({
       </text>
       <line x1={682} y1={BINS_Y + 115} x2={682} y2={FLASKS_Y} stroke={STROKE} strokeWidth={1.5} />
       <line x1={812} y1={BINS_Y + 115} x2={812} y2={FLASKS_Y} stroke={STROKE} strokeWidth={1.5} />
-      <FlowDots
-        path={`M 610 ${BINS_Y + 100} L 610 ${BINS_Y + 115} L 880 ${BINS_Y + 115} L 812 ${BINS_Y + 115} L 812 ${FLASKS_Y}`}
-        count={2}
-        duration={flowDuration * 1.2}
-      />
+      {/* every bin discharges onto the shared conveyor, which carries on,
+          one direction only, to both flasks, not just one of them */}
+      <FlowDots path={`M 610 ${BINS_Y + 100} L 610 ${BINS_Y + 115}`} count={1} duration={1.1} />
+      <FlowDots path={`M 745 ${BINS_Y + 100} L 745 ${BINS_Y + 115}`} count={1} duration={1.1} />
+      <FlowDots path={`M 880 ${BINS_Y + 100} L 880 ${BINS_Y + 115}`} count={1} duration={1.1} />
+      <FlowDots path={`M 610 ${BINS_Y + 115} L 880 ${BINS_Y + 115}`} count={2} duration={flowDuration * 1.2} />
+      <FlowDots path={`M 682 ${BINS_Y + 115} L 682 ${FLASKS_Y}`} count={1} duration={1.1} />
+      <FlowDots path={`M 812 ${BINS_Y + 115} L 812 ${FLASKS_Y}`} count={1} duration={1.1} />
 
       <Box x={645} y={FLASKS_Y} w={75} h={36} label="Flask west" />
       <Box x={775} y={FLASKS_Y} w={75} h={36} label="Flask east" />
@@ -278,26 +286,28 @@ export default function Schematic({
       <text x={SHAFT_X + SHAFT_W - 8} y={SHAFT_Y - 12} fill={MUTED} fontSize={13} textAnchor="end">
         production shaft
       </text>
-      {/* flasks load their own skip where it rests, lower in the shaft, not
-          at the top where it dumps. Right angled, like every other
-          conveyor here, rather than a diagonal that would cut across the
-          other flask's box or the readout above. */}
+      {/* flasks load their own skip where it rests. Ore falls down from
+          the flask, so the loading point sits below the flask, then
+          across to the skip's own lane, matching where its rope actually
+          ends up. */}
       <path
-        d={`M 682 ${FLASKS_Y + 36} L 682 ${FLASKS_Y + 70} L ${SKIP_W_X} ${FLASKS_Y + 70} L ${SKIP_W_X} ${SKIP_W_LOW_Y}`}
+        d={`M 682 ${FLASKS_Y + 36} L 682 ${SKIP_W_LOW_Y} L ${SKIP_W_X} ${SKIP_W_LOW_Y}`}
         fill="none"
         stroke={STROKE}
         strokeWidth={1.5}
       />
       <path
-        d={`M 812 ${FLASKS_Y + 36} L 812 ${FLASKS_Y + 95} L ${SKIP_E_X} ${FLASKS_Y + 95} L ${SKIP_E_X} ${SKIP_E_LOW_Y}`}
+        d={`M 812 ${FLASKS_Y + 36} L 812 ${SKIP_E_LOW_Y} L ${SKIP_E_X} ${SKIP_E_LOW_Y}`}
         fill="none"
         stroke={STROKE}
         strokeWidth={1.5}
       />
 
-      {/* the rope each skip actually hangs from, its lower end animated in
-          exact lockstep with that skip's own animation below, so it reads
-          as attached rather than the skip floating free */}
+      {/* the rope each skip actually hangs from, animated in exact
+          lockstep with that skip's own animation below, so it reads as
+          attached rather than the skip floating free. Skip E's rope is
+          right angled, straight down from the winder then across, so it
+          never crosses skip W's own rope on the way. */}
       <line x1={WINDER_X - 8} y1={WINDER_Y + 24} x2={SKIP_W_X} y2={SKIP_W_LOW_Y} stroke="#cbd5e1" strokeWidth={1.5}>
         <animate
           attributeName="y2"
@@ -307,16 +317,23 @@ export default function Schematic({
           repeatCount="indefinite"
         />
       </line>
-      <line x1={WINDER_X + 8} y1={WINDER_Y + 24} x2={SKIP_E_X} y2={SKIP_E_LOW_Y} stroke="#cbd5e1" strokeWidth={1.5}>
+      <path
+        d={`M ${WINDER_X + 8} ${WINDER_Y + 24} L ${WINDER_X + 8} ${SHAFT_Y + 10} L ${SKIP_E_X} ${SHAFT_Y + 10} L ${SKIP_E_X} ${SKIP_E_LOW_Y}`}
+        fill="none"
+        stroke="#cbd5e1"
+        strokeWidth={1.5}
+      >
         <animate
-          attributeName="y2"
-          values={`${SKIP_E_LOW_Y};${SKIP_HIGH_Y};${SKIP_E_LOW_Y}`}
+          attributeName="d"
+          values={[SKIP_E_LOW_Y, SKIP_HIGH_Y, SKIP_E_LOW_Y]
+            .map((y) => `M ${WINDER_X + 8} ${WINDER_Y + 24} L ${WINDER_X + 8} ${SHAFT_Y + 10} L ${SKIP_E_X} ${SHAFT_Y + 10} L ${SKIP_E_X} ${y}`)
+            .join(";")}
           keyTimes="0;0.5;1"
           dur={`${skipDuration}s`}
           begin={`${-skipDuration / 2}s`}
           repeatCount="indefinite"
         />
-      </line>
+      </path>
 
       <g transform={`translate(0, ${SKIP_W_LOW_Y})`}>
         <animateTransform
